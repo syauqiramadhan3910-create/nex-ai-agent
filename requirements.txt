@@ -1,2 +1,9 @@
 streamlit
 groq
+langchain
+langchain-groq
+langchain-community
+web3
+requests
+python-dotenv
+tavily-python
