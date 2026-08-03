@@ -9,8 +9,22 @@ from web3 import Web3
 
 st.set_page_config(page_title="Nex AI Agent", page_icon="🤖")
 
+# --- TAMBAHKAN CSS INI UNTUK MATIKAN TARIK-REFRESH ---
+st.markdown(
+    """
+    <style>
+    body {
+        overscroll-behavior-y: none;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+# ----------------------------------------------------
+
 st.title("🤖 Nex AI Agent")
 st.write("Asisten AI serba bisa buatan Syauqi!")
+# ... (lanjutan kode berikutnya biarkan seperti biasa)
 
 # Ambil API Key secara otomatis dan tersembunyi dari Streamlit Secrets
 try:
