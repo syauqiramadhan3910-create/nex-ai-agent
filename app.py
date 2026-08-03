@@ -9,12 +9,12 @@ from web3 import Web3
 
 st.set_page_config(page_title="Nex AI Agent", page_icon="🤖")
 
-# Mematikan efek tarik-refresh di HP (PWA/WebView)
+# CSS untuk mengontrol perilaku scroll dan mencegah efek tarik-refresh di mobile
 st.markdown(
     """
     <style>
-    body {
-        overscroll-behavior-y: none;
+    html, body, [data-testid="stAppViewContainer"] {
+        overscroll-behavior-y: none !important;
     }
     </style>
     """,
@@ -41,7 +41,7 @@ else:
     llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=groq_api_key)
 
     SYSTEM_PROMPT = """
-    Kamu adalah 'nex', sebuah Agent AI serba bisa yang canggih dan ramah.
+    Kamu adalah 'nex', sebuah Agent AI serba bisa yang canggih, ramah, dan mahir berbagai bahasa.
     SANGAT PENTING: Kamu diciptakan dan dikembangkan secara penuh oleh syauqi.
     Jika pengguna menanyakan siapa yang menciptakanmu, siapa pembuatmu, siapa namamu, atau pengembangmu, kamu HARUS LANGSUNG menjawab bahwa kamu adalah 'nex' yang diciptakan oleh syauqi. JANGAN PERNAH menggunakan alat pencari/browsing untuk menjawab pertanyaan tentang identitasmu sendiri!
     """
@@ -75,13 +75,12 @@ else:
     def get_weather_forecast(city: str) -> str:
         """Gunakan alat ini untuk meramal atau mengecek cuaca hari ini dan perkiraan cuaca untuk besok di suatu kota."""
         try:
-            # Menggunakan wttr.in API gratis yang sangat akurat untuk data cuaca global
             url = f"https://wttr.in/{city}?format=j1"
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 data = response.json()
                 current = data['current_condition'][0]
-                weather_forecasts = data['weather'] # Berisi prakiraan hari ini dan beberapa hari ke depan
+                weather_forecasts = data['weather']
                 
                 result = {
                     "city": city,
@@ -98,7 +97,7 @@ else:
                         "date": day['date'],
                         "max_temp_C": day['maxtempC'],
                         "min_temp_C": day['mintempC'],
-                        "condition": day['hourly'][4]['weatherDesc'][0]['value'] # Perkiraan siang hari
+                        "condition": day['hourly'][4]['weatherDesc'][0]['value']
                     })
                 
                 return json.dumps(result)
@@ -106,32 +105,54 @@ else:
         except Exception as e:
             return f"Gagal mengambil cuaca: {str(e)}"
 
+    @tool
+    def translate_text(text: str, target_language: str) -> str:
+        """Gunakan alat ini untuk menerjemahkan teks ke bahasa tujuan tertentu (misal: Inggris, Jepang, Sunda, dll)."""
+        try:
+            prompt_translate = f"Terjemahkan teks berikut ke dalam Bahasa {target_language}. Berikan hanya hasil terjemahannya saja secara akurat:\n\n{text}"
+            res = llm.invoke(prompt_translate)
+            return json.dumps({"original_text": text, "target_language": target_language, "translation": res.content})
+        except Exception as e:
+            return f"Gagal menerjemahkan: {str(e)}"
+
+    @tool
+    def summarize_text(text: str) -> str:
+        """Gunakan alat ini untuk meringkas catatan, artikel, atau teks panjang menjadi poin-poin penting yang ringkas."""
+        try:
+            prompt_summary = f"Tolong buatkan ringkasan yang jelas, padat, dan terstruktur dalam bentuk poin-poin penting dari teks berikut:\n\n{text}"
+            res = llm.invoke(prompt_summary)
+            return json.dumps({"summary": res.content})
+        except Exception as e:
+            return f"Gagal meringkas teks: {str(e)}"
+
     web_search_tool = TavilySearchResults(
         max_results=3,
         tavily_api_key=tavily_api_key,
         description="Gunakan alat ini HANYA untuk mencari informasi luar seperti berita, produk, atau fakta dunia."
     )
 
-    tools = [get_eth_balance, get_crypto_price, get_weather_forecast, web_search_tool]
+    tools = [get_eth_balance, get_crypto_price, get_weather_forecast, translate_text, summarize_text, web_search_tool]
     llm_with_tools = llm.bind_tools(tools)
 
     tool_map = {
         "get_eth_balance": get_eth_balance,
         "get_crypto_price": get_crypto_price,
         "get_weather_forecast": get_weather_forecast,
+        "translate_text": translate_text,
+        "summarize_text": summarize_text,
         "tavily_search_results_json": web_search_tool
     }
 
-    # --- MANAJEMEN HISTORY PERCAKAPAN ---
+    # Manajemen History Percakapan
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Tombol Reset Chat di Sidebar / Atas
+    # Tombol Reset Chat di Sidebar
     if st.sidebar.button("🗑️ Hapus Riwayat Chat"):
         st.session_state.messages = []
         st.rerun()
 
-    # Menampilkan riwayat percakapan di layar
+    # Menampilkan riwayat percakapan
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
