@@ -7,30 +7,21 @@ from langchain_core.tools import tool
 from langchain_community.tools import TavilySearchResults
 from web3 import Web3
 
-# Konfigurasi Halaman Streamlit
 st.set_page_config(page_title="Nex AI Agent", page_icon="🤖")
 
 st.title("🤖 Nex AI Agent")
-st.write("Asisten AI serba bisa buatan Syauqi (Dilengkapi Tools Crypto & Web Search)!")
+st.write("Asisten AI serba bisa buatan Syauqi!")
 
-# Sidebar untuk Input API Key jika belum ada di Secrets
-st.sidebar.header("🔑 Konfigurasi API Key")
-groq_key = os.environ.get("GROQ_API_KEY")
-tavily_key = os.environ.get("OS_ENV_TAVILY_KEY") or os.environ.get("TAVILY_API_KEY")
-
+# Ambil API Key secara otomatis dan tersembunyi dari Streamlit Secrets
 try:
-    if not groq_key:
-        groq_key = st.secrets.get("GROQ_API_KEY")
-    if not tavily_key:
-        tavily_key = st.secrets.get("TAVILY_API_KEY")
+    groq_api_key = st.secrets["GROQ_API_KEY"]
+    tavily_api_key = st.secrets["TAVILY_API_KEY"]
 except:
-    pass
-
-groq_api_key = st.sidebar.text_input("Groq API Key:", value=groq_key or "", type="password")
-tavily_api_key = st.sidebar.text_input("Tavily API Key:", value=tavily_key or "", type="password")
+    groq_api_key = os.environ.get("GROQ_API_KEY")
+    tavily_api_key = os.environ.get("TAVILY_API_KEY")
 
 if not groq_api_key or not tavily_api_key:
-    st.warning("⚠️ Masukkan Groq API Key dan Tavily API Key terlebih dahulu di sidebar atau secrets!")
+    st.error("⚠️ API Key belum disetting di Secrets Streamlit! Harap masukkan di menu Secrets dashboard Streamlit.")
 else:
     # Inisialisasi koneksi Web3 & LLM
     RPC_URL = "https://eth-mainnet.g.alchemy.com/v2/alch_5iYsxcDP0cS2bzLC6Rt8e"
@@ -84,7 +75,6 @@ else:
         "tavily_search_results_json": web_search_tool
     }
 
-    # Kelola riwayat chat Streamlit
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
@@ -99,7 +89,6 @@ else:
 
         with st.chat_message("assistant"):
             with st.spinner("Nex sedang memikirkan jawaban..."):
-                # Proses Agent dengan Tools LangChain
                 messages_history = [("system", SYSTEM_PROMPT)]
                 for m in st.session_state.messages[:-1]:
                     messages_history.append((m["role"], m["content"]))
