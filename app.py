@@ -6,6 +6,7 @@ import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_core.tools import tool
 from langchain_community.tools import TavilySearchResults
+from langchain_core.messages import HumanMessage, SystemMessage
 from web3 import Web3
 
 st.set_page_config(page_title="Nex AI Agent", page_icon="🤖")
@@ -175,30 +176,37 @@ else:
 
         with st.chat_message("assistant"):
             with st.spinner("Nex sedang memikirkan jawaban..."):
-                messages_history = [("system", SYSTEM_PROMPT)]
-                for m in st.session_state.messages[:-1]:
-                    messages_history.append((m["role"], m["content"]))
 
-                # Skenario 1: Ada Upload Gambar (Pakai Model Vision)
+                # SKENARIO 1: ADA FOTO TUGAS DIUNGGAH
                 if uploaded_file:
                     bytes_data = uploaded_file.getvalue()
                     base64_image = base64.b64encode(bytes_data).decode('utf-8')
-                    user_content = [
-                        {"type": "text", "text": user_prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                        },
-                    ]
-                    messages_history.append(("user", user_content))
                     
-                    # Panggil model vision secara langsung tanpa tools
-                    ai_response = llm_vision.invoke(messages_history)
+                    # Buat format pesan bersih menggunakan HumanMessage & SystemMessage
+                    vision_messages = [
+                        SystemMessage(content=SYSTEM_PROMPT),
+                        HumanMessage(
+                            content=[
+                                {"type": "text", "text": user_prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                                },
+                            ]
+                        )
+                    ]
+                    
+                    # Panggil model vision
+                    ai_response = llm_vision.invoke(vision_messages)
                     reply_content = ai_response.content
 
-                # Skenario 2: Hanya Teks Biasa (Pakai Model Standard + Tools)
+                # SKENARIO 2: CHAT TEKS BIASA
                 else:
+                    messages_history = [("system", SYSTEM_PROMPT)]
+                    for m in st.session_state.messages[:-1]:
+                        messages_history.append((m["role"], m["content"]))
                     messages_history.append(("user", user_prompt))
+
                     ai_response = llm_with_tools.invoke(messages_history)
 
                     if ai_response.tool_calls:
@@ -224,4 +232,4 @@ else:
                 st.markdown(reply_content)
         
         st.session_state.messages.append({"role": "assistant", "content": reply_content})
-            
+    
