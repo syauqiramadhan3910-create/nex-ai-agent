@@ -209,11 +209,14 @@ else:
                             "Authorization": f"Bearer {groq_api_key}",
                             "Content-Type": "application/json"
                         }
-                        data = {
+                            
+                         data = {
                             "messages": vision_payload,
-                            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+                            "model": "llama-3.2-11b-vision-preview",
                             "temperature": 0.2
                         }
+                        
+                            
                         
                         response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
                         
