@@ -2,6 +2,7 @@ import os
 import json
 import base64
 import requests
+import urllib.parse
 import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_core.tools import tool
@@ -46,15 +47,26 @@ else:
     llm_main = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.3, api_key=groq_api_key)
 
     SYSTEM_PROMPT = """
-    Kamu adalah 'nex', sebuah Agent AI serba bisa yang canggih, ramah, dan mahir menganalisis teks maupun gambar/foto tugas.
+    Kamu adalah 'nex', sebuah Agent AI serba bisa yang canggih, ramah, dan mahir menganalisis teks, membuat gambar, maupun menganalisis foto tugas.
     SANGAT PENTING: Kamu diciptakan dan dikembangkan secara penuh oleh syauqi.
     Jika pengguna menanyakan siapa yang menciptakanmu, siapa pembuatmu, siapa namamu, atau pengembangmu, kamu HARUS LANGSUNG menjawab bahwa kamu adalah 'nex' yang diciptakan oleh syauqi. JANGAN PERNAH menggunakan alat pencari/browsing untuk menjawab pertanyaan tentang identitasmu sendiri!
+    Jika pengguna meminta untuk membuatkan/menggambar/generate gambar atau foto, gunakan alat `generate_image` dan berikan deskripsi prompt gambar dalam Bahasa Inggris agar hasilnya maksimal.
     Jika pengguna mengirimkan gambar, analisis gambar tersebut dengan teliti dan jawab pertanyaan yang relevan secara jelas dan rinci.
     """
 
     # ---------------------------------------------------------
     # DEFINISI TOOLS
     # ---------------------------------------------------------
+    @tool
+    def generate_image(prompt: str) -> str:
+        """Gunakan alat ini HANYA ketika pengguna meminta untuk membuat, meng-generate, atau menggambar sesuatu (Image Generator). Input: prompt deskripsi gambar dalam Bahasa Inggris."""
+        try:
+            encoded_prompt = urllib.parse.quote(prompt)
+            image_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1024&seed=42&nologo=true"
+            return json.dumps({"image_url": image_url, "prompt": prompt})
+        except Exception as e:
+            return f"Gagal membuat gambar: {str(e)}"
+
     @tool
     def get_eth_balance(wallet_address: str) -> str:
         """Gunakan alat ini HANYA untuk mengecek saldo ETH dari alamat wallet Ethereum. Input: address 0x..."""
@@ -140,10 +152,11 @@ else:
         description="Gunakan alat ini HANYA untuk mencari informasi luar seperti berita, produk, atau fakta dunia."
     )
 
-    tools = [get_eth_balance, get_crypto_price, get_weather_forecast, translate_text, summarize_text, web_search_tool]
+    tools = [generate_image, get_eth_balance, get_crypto_price, get_weather_forecast, translate_text, summarize_text, web_search_tool]
     llm_main_with_tools = llm_main.bind_tools(tools)
 
     tool_map = {
+        "generate_image": generate_image,
         "get_eth_balance": get_eth_balance,
         "get_crypto_price": get_crypto_price,
         "get_weather_forecast": get_weather_forecast,
@@ -228,7 +241,7 @@ else:
                         reply_content = "Terjadi kesalahan internal saat memproses gambar."
 
                 # ---------------------------------------------------------
-                # SKENARIO 2: CHAT TEKS
+                # SKENARIO 2: CHAT TEKS & TOOL EXECUTION
                 # ---------------------------------------------------------
                 else:
                     try:
@@ -248,17 +261,26 @@ else:
                             selected_tool = tool_map[tool_name]
                             tool_output = selected_tool.invoke(tool_call['args'])
 
-                            final_response = llm_main.invoke([
-                                SystemMessage(content=SYSTEM_PROMPT),
-                                HumanMessage(content=user_prompt),
-                                ai_response,
-                                {
-                                    "role": "tool",
-                                    "content": str(tool_output),
-                                    "tool_call_id": tool_call["id"],
-                                }
-                            ])
-                            reply_content = final_response.content
+                            # Khusus jika tool yang dipanggil adalah Image Generator
+                            if tool_name == "generate_image":
+                                try:
+                                    img_data = json.loads(tool_output)
+                                    image_url = img_data.get("image_url")
+                                    reply_content = f"Ini gambar yang kamu minta untuk **'{user_prompt}'**:\n\n![Generated Image]({image_url})"
+                                except:
+                                    reply_content = f"Berhasil membuat gambar: {tool_output}"
+                            else:
+                                final_response = llm_main.invoke([
+                                    SystemMessage(content=SYSTEM_PROMPT),
+                                    HumanMessage(content=user_prompt),
+                                    ai_response,
+                                    {
+                                        "role": "tool",
+                                        "content": str(tool_output),
+                                        "tool_call_id": tool_call["id"],
+                                    }
+                                ])
+                                reply_content = final_response.content
                         else:
                             reply_content = ai_response.content
                             
@@ -269,3 +291,4 @@ else:
                 st.markdown(reply_content)
         
         st.session_state.messages.append({"role": "assistant", "content": reply_content})
+            
