@@ -39,8 +39,10 @@ else:
     RPC_URL = "https://eth-mainnet.g.alchemy.com/v2/alch_5iYsxcDP0cS2bzLC6Rt8e"
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
     
-    # MENGGUNAKAN MODEL VISION AGAR BISA MEMBACA GAMBAR/FOTO TUGAS
-    llm = ChatGroq(model="llama-3.2-11b-vision-preview", temperature=0, api_key=groq_api_key)
+    # Model Teks & Tools
+    llm_text = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=groq_api_key)
+    # Model Vision Khusus Gambar
+    llm_vision = ChatGroq(model="llama-3.2-11b-vision-preview", temperature=0, api_key=groq_api_key)
 
     SYSTEM_PROMPT = """
     Kamu adalah 'nex', sebuah Agent AI serba bisa yang canggih, ramah, dan mahir menganalisis teks maupun gambar/foto tugas.
@@ -112,7 +114,7 @@ else:
         """Gunakan alat ini untuk menerjemahkan teks ke bahasa tujuan tertentu (misal: Inggris, Jepang, Sunda, dll)."""
         try:
             prompt_translate = f"Terjemahkan teks berikut ke dalam Bahasa {target_language}. Berikan hanya hasil terjemahannya saja secara akurat:\n\n{text}"
-            res = llm.invoke(prompt_translate)
+            res = llm_text.invoke(prompt_translate)
             return json.dumps({"original_text": text, "target_language": target_language, "translation": res.content})
         except Exception as e:
             return f"Gagal menerjemahkan: {str(e)}"
@@ -122,7 +124,7 @@ else:
         """Gunakan alat ini untuk meringkas catatan, artikel, atau teks panjang menjadi poin-poin penting yang ringkas."""
         try:
             prompt_summary = f"Tolong buatkan ringkasan yang jelas, padat, dan terstruktur dalam bentuk poin-poin penting dari teks berikut:\n\n{text}"
-            res = llm.invoke(prompt_summary)
+            res = llm_text.invoke(prompt_summary)
             return json.dumps({"summary": res.content})
         except Exception as e:
             return f"Gagal meringkas teks: {str(e)}"
@@ -134,7 +136,7 @@ else:
     )
 
     tools = [get_eth_balance, get_crypto_price, get_weather_forecast, translate_text, summarize_text, web_search_tool]
-    llm_with_tools = llm.bind_tools(tools)
+    llm_with_tools = llm_text.bind_tools(tools)
 
     tool_map = {
         "get_eth_balance": get_eth_balance,
@@ -164,7 +166,7 @@ else:
             st.markdown(message["content"])
 
     # Input chat dari user
-    if user_prompt := st.chat_input("Tulis pesanmu atau instruksi untuk foto tugas di sini..."):
+    if user_prompt := st.chat_input("Tulis pesanmu di sini..."):
         st.session_state.messages.append({"role": "user", "content": user_prompt})
         with st.chat_message("user"):
             st.markdown(user_prompt)
@@ -172,12 +174,12 @@ else:
                 st.image(uploaded_file, caption="Foto Tugas yang Diunggah", use_container_width=True)
 
         with st.chat_message("assistant"):
-            with st.spinner("Nex sedang membaca tugas dan memikirkan jawaban..."):
+            with st.spinner("Nex sedang memikirkan jawaban..."):
                 messages_history = [("system", SYSTEM_PROMPT)]
                 for m in st.session_state.messages[:-1]:
                     messages_history.append((m["role"], m["content"]))
 
-                # Jika ada gambar yang diunggah, kirimkan format Multimodal ke LLM
+                # Skenario 1: Ada Upload Gambar (Pakai Model Vision)
                 if uploaded_file:
                     bytes_data = uploaded_file.getvalue()
                     base64_image = base64.b64encode(bytes_data).decode('utf-8')
@@ -189,32 +191,37 @@ else:
                         },
                     ]
                     messages_history.append(("user", user_content))
+                    
+                    # Panggil model vision secara langsung tanpa tools
+                    ai_response = llm_vision.invoke(messages_history)
+                    reply_content = ai_response.content
+
+                # Skenario 2: Hanya Teks Biasa (Pakai Model Standard + Tools)
                 else:
                     messages_history.append(("user", user_prompt))
+                    ai_response = llm_with_tools.invoke(messages_history)
 
-                ai_response = llm_with_tools.invoke(messages_history)
+                    if ai_response.tool_calls:
+                        tool_call = ai_response.tool_calls[0]
+                        tool_name = tool_call['name']
+                        selected_tool = tool_map[tool_name]
+                        tool_output = selected_tool.invoke(tool_call['args'])
 
-                if ai_response.tool_calls:
-                    tool_call = ai_response.tool_calls[0]
-                    tool_name = tool_call['name']
-                    selected_tool = tool_map[tool_name]
-                    tool_output = selected_tool.invoke(tool_call['args'])
-
-                    final_response = llm.invoke([
-                        ("system", SYSTEM_PROMPT),
-                        ("user", user_prompt),
-                        ai_response,
-                        {
-                            "role": "tool",
-                            "content": str(tool_output),
-                            "tool_call_id": tool_call["id"],
-                        }
-                    ])
-                    reply_content = final_response.content
-                else:
-                    reply_content = ai_response.content
+                        final_response = llm_text.invoke([
+                            ("system", SYSTEM_PROMPT),
+                            ("user", user_prompt),
+                            ai_response,
+                            {
+                                "role": "tool",
+                                "content": str(tool_output),
+                                "tool_call_id": tool_call["id"],
+                            }
+                        ])
+                        reply_content = final_response.content
+                    else:
+                        reply_content = ai_response.content
 
                 st.markdown(reply_content)
         
         st.session_state.messages.append({"role": "assistant", "content": reply_content})
-        
+            
