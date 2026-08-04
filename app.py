@@ -210,7 +210,7 @@ else:
                         
                         data = {
                             "messages": vision_payload,
-                            "model": "llama-3.2-11b-vision-preview",
+                            "model": "qwen/qwen3.6-27b",
                             "temperature": 0.2
                         }
                         
@@ -269,4 +269,3 @@ else:
                 st.markdown(reply_content)
         
         st.session_state.messages.append({"role": "assistant", "content": reply_content})
-    
