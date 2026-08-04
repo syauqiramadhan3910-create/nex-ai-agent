@@ -62,7 +62,7 @@ else:
         """Gunakan alat ini HANYA ketika pengguna meminta untuk membuat, meng-generate, atau menggambar sesuatu (Image Generator). Input: prompt deskripsi gambar dalam Bahasa Inggris."""
         try:
             encoded_prompt = urllib.parse.quote(prompt)
-            image_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1024&seed=42&nologo=true"
+            image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
             return json.dumps({"image_url": image_url, "prompt": prompt})
         except Exception as e:
             return f"Gagal membuat gambar: {str(e)}"
@@ -177,7 +177,11 @@ else:
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            if "image_url" in message:
+                st.markdown(message["content"])
+                st.image(message["image_url"], use_container_width=True)
+            else:
+                st.markdown(message["content"])
 
     if user_prompt := st.chat_input("Tulis pesanmu di sini..."):
         st.session_state.messages.append({"role": "user", "content": user_prompt})
@@ -239,6 +243,9 @@ else:
                     except Exception as vision_error:
                         st.error(f"Eror saat memproses gambar: {str(vision_error)}")
                         reply_content = "Terjadi kesalahan internal saat memproses gambar."
+                    
+                    st.markdown(reply_content)
+                    st.session_state.messages.append({"role": "assistant", "content": reply_content})
 
                 # ---------------------------------------------------------
                 # SKENARIO 2: CHAT TEKS & TOOL EXECUTION
@@ -261,14 +268,18 @@ else:
                             selected_tool = tool_map[tool_name]
                             tool_output = selected_tool.invoke(tool_call['args'])
 
-                            # Khusus jika tool yang dipanggil adalah Image Generator
                             if tool_name == "generate_image":
                                 try:
                                     img_data = json.loads(tool_output)
                                     image_url = img_data.get("image_url")
-                                    reply_content = f"Ini gambar yang kamu minta untuk **'{user_prompt}'**:\n\n![Generated Image]({image_url})"
+                                    reply_content = f"Ini gambar yang kamu minta untuk **'{user_prompt}'**:"
+                                    st.markdown(reply_content)
+                                    st.image(image_url, use_container_width=True)
+                                    st.session_state.messages.append({"role": "assistant", "content": reply_content, "image_url": image_url})
                                 except:
                                     reply_content = f"Berhasil membuat gambar: {tool_output}"
+                                    st.markdown(reply_content)
+                                    st.session_state.messages.append({"role": "assistant", "content": reply_content})
                             else:
                                 final_response = llm_main.invoke([
                                     SystemMessage(content=SYSTEM_PROMPT),
@@ -281,14 +292,16 @@ else:
                                     }
                                 ])
                                 reply_content = final_response.content
+                                st.markdown(reply_content)
+                                st.session_state.messages.append({"role": "assistant", "content": reply_content})
                         else:
                             reply_content = ai_response.content
+                            st.markdown(reply_content)
+                            st.session_state.messages.append({"role": "assistant", "content": reply_content})
                             
                     except Exception as text_error:
                         st.error(f"Eror saat memproses teks: {str(text_error)}")
                         reply_content = "Maaf, Nex mengalami masalah saat memproses pesan teks."
-
-                st.markdown(reply_content)
-        
-        st.session_state.messages.append({"role": "assistant", "content": reply_content})
-            
+                        st.markdown(reply_content)
+                        st.session_state.messages.append({"role": "assistant", "content": reply_content})
+                
