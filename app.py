@@ -43,8 +43,6 @@ else:
     # ---------------------------------------------------------
     # KONFIGURASI MODEL
     # ---------------------------------------------------------
-    
-    # Model Utama untuk Chatting & Tools
     llm_main = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.3, api_key=groq_api_key)
 
     SYSTEM_PROMPT = """
@@ -179,7 +177,7 @@ else:
             with st.spinner("Nex sedang memikirkan jawaban..."):
 
                 # ---------------------------------------------------------
-                # SKENARIO 1: UPLOAD GAMBAR (MODEL VISION TERBARU)
+                # SKENARIO 1: UPLOAD GAMBAR
                 # ---------------------------------------------------------
                 if uploaded_file:
                     try:
@@ -209,14 +207,12 @@ else:
                             "Authorization": f"Bearer {groq_api_key}",
                             "Content-Type": "application/json"
                         }
-                            
-                         data = {
+                        
+                        data = {
                             "messages": vision_payload,
                             "model": "llama-3.2-11b-vision-preview",
                             "temperature": 0.2
                         }
-                        
-                            
                         
                         response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
                         
@@ -273,3 +269,4 @@ else:
                 st.markdown(reply_content)
         
         st.session_state.messages.append({"role": "assistant", "content": reply_content})
+    
