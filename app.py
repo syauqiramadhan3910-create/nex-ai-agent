@@ -40,17 +40,27 @@ else:
     RPC_URL = "https://eth-mainnet.g.alchemy.com/v2/alch_5iYsxcDP0cS2bzLC6Rt8e"
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
     
-    # Model Teks & Tools
-    llm_text = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=groq_api_key)
-    # Model Vision Khusus Gambar
-    llm_vision = ChatGroq(model="llama-3.2-11b-vision-preview", temperature=0, api_key=groq_api_key)
+    # ---------------------------------------------------------
+    # KONFIGURASI MODEL: KITA PAKAI DUA MODEL BERBEDA
+    # ---------------------------------------------------------
+    
+    # 1. Model Utama untuk Teks, Chatting, dan Tools (LEBIH PINTAR & STABIL)
+    llm_main = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.3, api_key=groq_api_key)
+    
+    # 2. Model Khusus untuk Analisis Gambar/Vision (SUPAYA TIDAK EROR)
+    # Kita pakai model 90b vision yang lebih kuat tapi tetap preview
+    llm_vision = ChatGroq(model="llama-3.2-90b-vision-preview", temperature=0, api_key=groq_api_key)
 
     SYSTEM_PROMPT = """
     Kamu adalah 'nex', sebuah Agent AI serba bisa yang canggih, ramah, dan mahir menganalisis teks maupun gambar/foto tugas.
     SANGAT PENTING: Kamu diciptakan dan dikembangkan secara penuh oleh syauqi.
     Jika pengguna menanyakan siapa yang menciptakanmu, siapa pembuatmu, siapa namamu, atau pengembangmu, kamu HARUS LANGSUNG menjawab bahwa kamu adalah 'nex' yang diciptakan oleh syauqi. JANGAN PERNAH menggunakan alat pencari/browsing untuk menjawab pertanyaan tentang identitasmu sendiri!
+    Jika pengguna mengirimkan gambar, kamu harus menganalisis gambar tersebut dengan teliti dan menjawab pertanyaan yang relevan dengan gambar tersebut.
     """
 
+    # ---------------------------------------------------------
+    # DEFINISI TOOLS (HANYA UNTUK MODEL TEKS)
+    # ---------------------------------------------------------
     @tool
     def get_eth_balance(wallet_address: str) -> str:
         """Gunakan alat ini HANYA untuk mengecek saldo ETH dari alamat wallet Ethereum. Input: address 0x..."""
@@ -115,7 +125,7 @@ else:
         """Gunakan alat ini untuk menerjemahkan teks ke bahasa tujuan tertentu (misal: Inggris, Jepang, Sunda, dll)."""
         try:
             prompt_translate = f"Terjemahkan teks berikut ke dalam Bahasa {target_language}. Berikan hanya hasil terjemahannya saja secara akurat:\n\n{text}"
-            res = llm_text.invoke(prompt_translate)
+            res = llm_main.invoke(prompt_translate)
             return json.dumps({"original_text": text, "target_language": target_language, "translation": res.content})
         except Exception as e:
             return f"Gagal menerjemahkan: {str(e)}"
@@ -125,7 +135,7 @@ else:
         """Gunakan alat ini untuk meringkas catatan, artikel, atau teks panjang menjadi poin-poin penting yang ringkas."""
         try:
             prompt_summary = f"Tolong buatkan ringkasan yang jelas, padat, dan terstruktur dalam bentuk poin-poin penting dari teks berikut:\n\n{text}"
-            res = llm_text.invoke(prompt_summary)
+            res = llm_main.invoke(prompt_summary)
             return json.dumps({"summary": res.content})
         except Exception as e:
             return f"Gagal meringkas teks: {str(e)}"
@@ -136,8 +146,11 @@ else:
         description="Gunakan alat ini HANYA untuk mencari informasi luar seperti berita, produk, atau fakta dunia."
     )
 
+    # Gabungkan semua tools
     tools = [get_eth_balance, get_crypto_price, get_weather_forecast, translate_text, summarize_text, web_search_tool]
-    llm_with_tools = llm_text.bind_tools(tools)
+    
+    # Bind tools HANYA ke model utama (Teks)
+    llm_main_with_tools = llm_main.bind_tools(tools)
 
     tool_map = {
         "get_eth_balance": get_eth_balance,
@@ -177,57 +190,108 @@ else:
         with st.chat_message("assistant"):
             with st.spinner("Nex sedang memikirkan jawaban..."):
 
-                # SKENARIO 1: ADA FOTO TUGAS DIUNGGAH
+                # ---------------------------------------------------------
+                # SKENARIO 1: ADA FOTO TUGAS DIUNGGAH -> PAKAI MODEL VISION
+                # ---------------------------------------------------------
                 if uploaded_file:
-                    bytes_data = uploaded_file.getvalue()
-                    base64_image = base64.b64encode(bytes_data).decode('utf-8')
-                    
-                    # Buat format pesan bersih menggunakan HumanMessage & SystemMessage
-                    vision_messages = [
-                        SystemMessage(content=SYSTEM_PROMPT),
-                        HumanMessage(
-                            content=[
-                                {"type": "text", "text": user_prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                                },
-                            ]
-                        )
-                    ]
-                    
-                    # Panggil model vision
-                    ai_response = llm_vision.invoke(vision_messages)
-                    reply_content = ai_response.content
-
-                # SKENARIO 2: CHAT TEKS BIASA
-                else:
-                    messages_history = [("system", SYSTEM_PROMPT)]
-                    for m in st.session_state.messages[:-1]:
-                        messages_history.append((m["role"], m["content"]))
-                    messages_history.append(("user", user_prompt))
-
-                    ai_response = llm_with_tools.invoke(messages_history)
-
-                    if ai_response.tool_calls:
-                        tool_call = ai_response.tool_calls[0]
-                        tool_name = tool_call['name']
-                        selected_tool = tool_map[tool_name]
-                        tool_output = selected_tool.invoke(tool_call['args'])
-
-                        final_response = llm_text.invoke([
-                            ("system", SYSTEM_PROMPT),
-                            ("user", user_prompt),
-                            ai_response,
+                    try:
+                        bytes_data = uploaded_file.getvalue()
+                        # Encode gambar ke Base64
+                        base64_image = base64.b64encode(bytes_data).decode('utf-8')
+                        
+                        # Buat format pesan bersih yang disukai Groq API
+                        # Kita gunakan list dictionary, bukan HumanMessage, untuk kontrol penuh
+                        vision_payload = [
                             {
-                                "role": "tool",
-                                "content": str(tool_output),
-                                "tool_call_id": tool_call["id"],
+                                "role": "system",
+                                "content": SYSTEM_PROMPT
+                            },
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": f"Pertanyaan user: {user_prompt}"},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:image/jpeg;base64,{base64_image}"
+                                        }
+                                    }
+                                ]
                             }
-                        ])
-                        reply_content = final_response.content
-                    else:
-                        reply_content = ai_response.content
+                        ]
+                        
+                        # Panggil model vision secara langsung lewat API call murni
+                        # (Ini lebih stabil daripada invoke LangChain untuk preview model)
+                        headers = {
+                            "Authorization": f"Bearer {groq_api_key}",
+                            "Content-Type": "application/json"
+                        }
+                        data = {
+                            "messages": vision_payload,
+                            "model": "llama-3.2-90b-vision-preview",
+                            "temperature": 0
+                        }
+                        
+                        response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            reply_content = result['choices'][0]['message']['content']
+                        else:
+                            st.error(f"Gagal memanggil API Groq Vision: {response.text}")
+                            reply_content = "Maaf, Nex gagal menganalisis gambar ini. Coba lagi nanti."
+
+                    except Exception as vision_error:
+                        st.error(f"Eror saat memproses gambar: {str(vision_error)}")
+                        reply_content = "Terjadi kesalahan internal saat memproses gambar."
+
+                # ---------------------------------------------------------
+                # SKENARIO 2: CHAT TEKS BIASA -> PAKAI MODEL UTAMA + TOOLS
+                # ---------------------------------------------------------
+                else:
+                    try:
+                        # Susun history untuk model teks
+                        messages_history = [SystemMessage(content=SYSTEM_PROMPT)]
+                        for m in st.session_state.messages[:-1]:
+                            if m["role"] == "user":
+                                messages_history.append(HumanMessage(content=m["content"]))
+                            else:
+                                # Ini asumsi m["role"] == "assistant"
+                                messages_history.append(m["content"])
+                                
+                        # Tambahkan pesan user terbaru
+                        messages_history.append(HumanMessage(content=user_prompt))
+
+                        # Panggil model utama dengan tools
+                        ai_response = llm_main_with_tools.invoke(messages_history)
+
+                        # Cek apakah AI memanggil tool
+                        if ai_response.tool_calls:
+                            tool_call = ai_response.tool_calls[0]
+                            tool_name = tool_call['name']
+                            selected_tool = tool_map[tool_name]
+                            
+                            # Jalankan tool
+                            tool_output = selected_tool.invoke(tool_call['args'])
+
+                            # Berikan hasil tool kembali ke AI untuk jawaban akhir
+                            final_response = llm_main.invoke([
+                                SystemMessage(content=SYSTEM_PROMPT),
+                                HumanMessage(content=user_prompt),
+                                ai_response,
+                                {
+                                    "role": "tool",
+                                    "content": str(tool_output),
+                                    "tool_call_id": tool_call["id"],
+                                }
+                            ])
+                            reply_content = final_response.content
+                        else:
+                            reply_content = ai_response.content
+                            
+                    except Exception as text_error:
+                        st.error(f"Eror saat memproses teks: {str(text_error)}")
+                        reply_content = "Maaf, Nex sedang mengalami gangguan dalam memproses teks."
 
                 st.markdown(reply_content)
         
