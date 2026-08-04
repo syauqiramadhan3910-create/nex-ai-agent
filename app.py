@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 import requests
 import streamlit as st
 from langchain_groq import ChatGroq
@@ -38,10 +39,11 @@ else:
     RPC_URL = "https://eth-mainnet.g.alchemy.com/v2/alch_5iYsxcDP0cS2bzLC6Rt8e"
     w3 = Web3(Web3.HTTPProvider(RPC_URL))
     
-    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=groq_api_key)
+    # MENGGUNAKAN MODEL VISION AGAR BISA MEMBACA GAMBAR/FOTO TUGAS
+    llm = ChatGroq(model="llama-3.2-11b-vision-preview", temperature=0, api_key=groq_api_key)
 
     SYSTEM_PROMPT = """
-    Kamu adalah 'nex', sebuah Agent AI serba bisa yang canggih, ramah, dan mahir berbagai bahasa.
+    Kamu adalah 'nex', sebuah Agent AI serba bisa yang canggih, ramah, dan mahir menganalisis teks maupun gambar/foto tugas.
     SANGAT PENTING: Kamu diciptakan dan dikembangkan secara penuh oleh syauqi.
     Jika pengguna menanyakan siapa yang menciptakanmu, siapa pembuatmu, siapa namamu, atau pengembangmu, kamu HARUS LANGSUNG menjawab bahwa kamu adalah 'nex' yang diciptakan oleh syauqi. JANGAN PERNAH menggunakan alat pencari/browsing untuk menjawab pertanyaan tentang identitasmu sendiri!
     """
@@ -152,23 +154,43 @@ else:
         st.session_state.messages = []
         st.rerun()
 
+    # Form Unggah Foto Tugas di Sidebar
+    st.sidebar.markdown("### 📷 Upload Foto Tugas")
+    uploaded_file = st.sidebar.file_uploader("Pilih gambar tugas...", type=["jpg", "jpeg", "png"])
+
     # Menampilkan riwayat percakapan
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
     # Input chat dari user
-    if user_prompt := st.chat_input("Tulis pesanmu di sini..."):
+    if user_prompt := st.chat_input("Tulis pesanmu atau instruksi untuk foto tugas di sini..."):
         st.session_state.messages.append({"role": "user", "content": user_prompt})
         with st.chat_message("user"):
             st.markdown(user_prompt)
+            if uploaded_file:
+                st.image(uploaded_file, caption="Foto Tugas yang Diunggah", use_container_width=True)
 
         with st.chat_message("assistant"):
-            with st.spinner("Nex sedang memikirkan jawaban..."):
+            with st.spinner("Nex sedang membaca tugas dan memikirkan jawaban..."):
                 messages_history = [("system", SYSTEM_PROMPT)]
                 for m in st.session_state.messages[:-1]:
                     messages_history.append((m["role"], m["content"]))
-                messages_history.append(("user", user_prompt))
+
+                # Jika ada gambar yang diunggah, kirimkan format Multimodal ke LLM
+                if uploaded_file:
+                    bytes_data = uploaded_file.getvalue()
+                    base64_image = base64.b64encode(bytes_data).decode('utf-8')
+                    user_content = [
+                        {"type": "text", "text": user_prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                        },
+                    ]
+                    messages_history.append(("user", user_content))
+                else:
+                    messages_history.append(("user", user_prompt))
 
                 ai_response = llm_with_tools.invoke(messages_history)
 
@@ -195,3 +217,4 @@ else:
                 st.markdown(reply_content)
         
         st.session_state.messages.append({"role": "assistant", "content": reply_content})
+        
